@@ -21,14 +21,14 @@ The relationships are: Pet references one Owner. Scheduler reads constraints fro
 **b. Design changes**
 
 Four changes were made to the skeleton after reviewing the initial design.
-Added __post_init__ validation to Owner and Task.
-The initial design had no guards on field values. Without them, nothing would stop code like Task(priority=99) or Owner(available_minutes=-10) from being created — both would silently produce wrong results when generate_plan() runs. Owner now rejects available_minutes that is zero or negative, and Task now rejects any priority outside of 1, 2, or 3, and any duration_minutes that is not positive. A ValueError is raised immediately at construction so the bug surfaces at the source rather than deep inside scheduling logic.
-Added duration_minutes validation to Task.
-Related to the above — a task with zero duration would pass the priority check but still silently corrupt the schedule by consuming a slot without using any time. The same __post_init__ block catches this.
-Changed bare list to list[Task] in DailyPlan.
-scheduled_tasks and skipped_tasks were typed as plain list, which gives no information about what the list should contain. Changing both to list[Task] makes the contract explicit — the Streamlit UI and any tests can rely on these always being lists of Task objects, and type checkers will flag misuse early.
-Implemented _sort_by_priority with a two-key sort.
-The initial stub left this method as pass. The sort key is (priority, duration_minutes) — primary sort on priority (1 first), secondary sort on duration ascending. The secondary key is a Shortest Job First tiebreaker: when multiple tasks share the same priority, scheduling the shorter one first maximises the number of tasks that fit within the available time window. This was implemented in the skeleton rather than deferred because the sort strategy directly affects the behaviour of generate_plan(), which is the next thing to build.
+
+Added __post_init__ validation to Owner and Task. The initial design had no guards on field values. Without them, nothing would stop code like Task(priority=99) or Owner(available_minutes=-10) from being created — both would silently produce wrong results when generate_plan() runs. Owner now rejects available_minutes that is zero or negative, and Task now rejects any priority outside of 1, 2, or 3, and any duration_minutes that is not positive. A ValueError is raised immediately at construction so the bug surfaces at the source rather than deep inside scheduling logic.
+
+Added duration_minutes validation to Task. Related to the above — a task with zero duration would pass the priority check but still silently corrupt the schedule by consuming a slot without using any time. The same __post_init__ block catches this.
+
+Changed bare list to list[Task] in DailyPlan. scheduled_tasks and skipped_tasks were typed as plain list, which gives no information about what the list should contain. Changing both to list[Task] makes the contract explicit — the Streamlit UI and any tests can rely on these always being lists of Task objects, and type checkers will flag misuse early.
+
+Implemented _sort_by_priority with a two-key sort. The initial stub left this method as pass. The sort key is (priority, duration_minutes) — primary sort on priority (1 first), secondary sort on duration ascending. The secondary key is a Shortest Job First tiebreaker: when multiple tasks share the same priority, scheduling the shorter one first maximises the number of tasks that fit within the available time window. This was implemented in the skeleton rather than deferred because the sort strategy directly affects the behaviour of generate_plan(), which is the next thing to build.
 
 ---
 
@@ -36,15 +36,33 @@ The initial stub left this method as pass. The sort key is (priority, duration_m
 
 **a. Constraints and priorities**
 
-- What constraints does your scheduler consider (for example: time, priority, preferences)?
-- How did you decide which constraints mattered most?
+The scheduler considers three constraints: available time (owner's available_minutes), task priority (1–3), and task duration. It ignores tasks already marked complete via is_completed, and skips tasks whose frequency has already been satisfied.
+
+Priority was treated as the primary constraint because it most directly reflects what a pet owner actually cares about — a medication task should never be bumped for a grooming task regardless of duration. Duration was chosen as the tiebreaker using a Shortest Job First strategy, which maximises the number of tasks that fit in the available window when multiple tasks share the same priority.
+
+time_slot and due_date inform display order and conflict detection but do not currently affect which tasks make it into the plan — the greedy algorithm schedules by priority first, not by time of day.
 
 **b. Tradeoffs**
 
-- Describe one tradeoff your scheduler makes.
-- Why is that tradeoff reasonable for this scenario?
+The scheduler uses a greedy algorithm, which does not guarantee the best possible plan. generate_plan() works through the sorted task list from highest to lowest priority and schedules each task the moment it fits, without looking ahead. This means it can make locally correct decisions that lead to a globally suboptimal result.
+
+For example: if two priority-1 tasks each take 55 minutes and the owner has 60 minutes available, the greedy algorithm schedules the first one and skips the second — leaving 5 minutes unused and a high-priority task unscheduled. A smarter algorithm might recognise that neither fits alongside the other and prompt the owner to choose, or swap in lower-priority tasks to fill the remaining time more efficiently.
+
+This tradeoff is reasonable for PawPal+ because the task lists are small (typically under 10 tasks per owner), the scheduling window is a single day, and simplicity matters more than optimality at this scale. A greedy approach is also predictable — the owner can understand why each task was chosen or skipped by reading the reasoning field, which would be harder to explain with a more complex algorithm like dynamic programming.
 
 ---
+
+## Smarter Scheduling
+
+PawPal+ goes beyond a basic to-do list with four scheduling improvements built into the `Scheduler` class.
+
+**Sort by time.** `sort_by_time()` orders tasks by their preferred start time using `HH:MM` string comparison. Because times are zero-padded, lexicographic order matches chronological order — no datetime parsing needed.
+
+**Filter by pet or status.** `filter_by_pet()` returns tasks belonging to a single named pet. `filter_by_status()` returns all tasks across every pet that are either complete or incomplete. Both methods let the UI show a focused view instead of a flat list.
+
+**Recurring tasks.** Every `Task` has a `frequency` field (`daily`, `weekly`, or `as_needed`) and a `due_date`. When `mark_task_complete()` is called on a daily or weekly task, `clone_for_next_occurrence()` automatically creates a fresh copy scheduled for the next due date using Python's `timedelta`. Tasks marked `as_needed` are completed without spawning a follow-up.
+
+**Conflict detection.** `detect_conflicts()` checks every pair of tasks using `itertools.combinations` and flags any two whose time windows overlap. The overlap condition is `start_A < end_B and start_B < end_A`, which catches both exact same-start collisions and partial overlaps. Warnings are returned as a list of strings so the app can display them without crashing.
 
 ## 3. AI Collaboration
 

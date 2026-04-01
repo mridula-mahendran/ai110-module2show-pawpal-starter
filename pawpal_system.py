@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass, field
 from typing import Optional
+from datetime import date, timedelta
+from itertools import combinations
 
 VALID_FREQUENCIES = ("daily", "weekly", "as_needed")
 
@@ -18,6 +20,8 @@ class Task:
     description: str = ""
     frequency: str = "daily"   # "daily" | "weekly" | "as_needed"
     is_completed: bool = False
+    time_slot: str = "08:00"   # Preferred start time in "HH:MM" format
+    due_date: date = field(default_factory=date.today)
 
     def __post_init__(self):
         if self.priority not in (1, 2, 3):
@@ -30,6 +34,25 @@ class Task:
     def mark_complete(self):
         """Mark this task as completed."""
         self.is_completed = True
+
+    def clone_for_next_occurrence(self) -> Optional["Task"]:
+        """Return a new Task scheduled for the next occurrence, or None if as_needed."""
+        if self.frequency == "daily":
+            next_due = self.due_date + timedelta(days=1)
+        elif self.frequency == "weekly":
+            next_due = self.due_date + timedelta(weeks=1)
+        else:
+            return None  # as_needed tasks don't auto-recur
+        return Task(
+            name=self.name,
+            duration_minutes=self.duration_minutes,
+            priority=self.priority,
+            category=self.category,
+            description=self.description,
+            frequency=self.frequency,
+            time_slot=self.time_slot,
+            due_date=next_due,
+        )
 
     def reset(self):
         """Reset completion status (call at the start of each new day)."""
@@ -216,6 +239,19 @@ class Scheduler:
         """Sort tasks by priority ascending, then duration ascending as a tiebreaker."""
         return sorted(tasks, key=lambda t: (t.priority, t.duration_minutes))
 
+    def sort_by_time(self, tasks: list[Task]) -> list[Task]:
+        """Sort tasks by preferred start time in ascending HH:MM order."""
+        return sorted(tasks, key=lambda t: t.time_slot)
+
+    def filter_by_status(self, completed: bool) -> list[Task]:
+        """Return all tasks across all pets matching the given completion status."""
+        return [t for t in self.owner.get_all_tasks() if t.is_completed == completed]
+
+    def filter_by_pet(self, pet_name: str) -> list[Task]:
+        """Return all tasks belonging to a specific pet by name."""
+        pet = self.owner.get_pet(pet_name)
+        return pet.tasks if pet else []
+
     def _fits_in_time(self, task: Task, remaining_minutes: int) -> bool:
         """Return True if the task fits within the remaining time budget."""
         return task.duration_minutes <= remaining_minutes
@@ -230,16 +266,46 @@ class Scheduler:
 
     def mark_task_complete(self, task_name: str) -> bool:
         """
-        Find a task by name across all pets and mark it complete.
-        Returns True if found, False if no matching task exists.
+        Mark a task complete and auto-schedule the next occurrence for
+        daily/weekly tasks using timedelta. Returns True if found.
         """
-        for task in self.owner.get_all_tasks():
-            if task.name == task_name:
-                task.mark_complete()
-                return True
+        for pet in self.owner.pets:
+            for task in pet.tasks:
+                if task.name == task_name:
+                    task.mark_complete()
+                    next_task = task.clone_for_next_occurrence()
+                    if next_task:
+                        pet.add_task(next_task)
+                    return True
         return False
 
     def reset_all_tasks(self):
         """Reset completion status on every task across all pets (call at day start)."""
         for pet in self.owner.pets:
             pet.reset_all_tasks()
+
+    @staticmethod
+    def _time_to_minutes(time_slot: str) -> int:
+        """Convert a HH:MM string to total minutes since midnight."""
+        hours, minutes = map(int, time_slot.split(":"))
+        return hours * 60 + minutes
+
+    def detect_conflicts(self, tasks: list[Task]) -> list[str]:
+        """
+        Check for overlapping tasks and return a list of warning strings.
+        Two tasks conflict if their time windows overlap:
+        start_A < end_B and start_B < end_A.
+        Returns an empty list if no conflicts are found.
+        """
+        warnings = []
+        for a, b in combinations(tasks, 2):
+                start_a = self._time_to_minutes(a.time_slot)
+                start_b = self._time_to_minutes(b.time_slot)
+                end_a = start_a + a.duration_minutes
+                end_b = start_b + b.duration_minutes
+                if start_a < end_b and start_b < end_a:
+                    warnings.append(
+                        f"⚠ Conflict: '{a.name}' ({a.time_slot}, {a.duration_minutes} min) "
+                        f"overlaps '{b.name}' ({b.time_slot}, {b.duration_minutes} min)."
+                    )
+        return warnings
