@@ -180,15 +180,7 @@ class Scheduler:
         self.owner = owner
 
     def generate_plan(self) -> DailyPlan:
-        """
-        Build a DailyPlan from all pending tasks across all pets.
-
-        Algorithm:
-          1. Collect all pending tasks from every pet via owner.
-          2. Sort by (priority asc, duration asc) — Shortest Job First tiebreaker.
-          3. Greedily schedule tasks until the time budget is exhausted.
-          4. Record one reasoning line per decision.
-        """
+        """Sort all pending tasks by priority, fit them into available time, and return a DailyPlan."""
         pending = self.owner.get_all_pending_tasks()
         sorted_tasks = self._sort_by_priority(pending)
 
@@ -221,11 +213,7 @@ class Scheduler:
         )
 
     def _sort_by_priority(self, tasks: list[Task]) -> list[Task]:
-        """
-        Sort by priority ascending (1 first), then duration ascending.
-        The duration tiebreaker (Shortest Job First) maximises the number
-        of tasks that fit within the available time window.
-        """
+        """Sort tasks by priority ascending, then duration ascending as a tiebreaker."""
         return sorted(tasks, key=lambda t: (t.priority, t.duration_minutes))
 
     def _fits_in_time(self, task: Task, remaining_minutes: int) -> bool:
