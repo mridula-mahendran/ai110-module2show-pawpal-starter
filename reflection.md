@@ -52,63 +52,19 @@ This tradeoff is reasonable for PawPal+ because the task lists are small (typica
 
 ---
 
-## Testing PawPal+
-
-Run the full test suite from the project root:
-
-```bash
-python -m pytest -v
-```
-
-**What the tests cover:**
-
-- **Task completion** — verifying `mark_complete()` updates `is_completed` correctly
-- **Pet task management** — confirming `add_task()` increases the pet's task count
-- **Sorting correctness** — ensuring `sort_by_time()` returns tasks in chronological order regardless of insertion order
-- **Recurrence logic** — confirming daily and weekly tasks auto-generate a next occurrence on completion, and that `as_needed` tasks do not
-- **Conflict detection** — verifying the scheduler flags both exact same-start and partial time overlaps, and produces no false positives for non-overlapping tasks
-- **Edge cases** — empty task lists, tasks that exceed available time, a task that fits exactly, and filtering by a pet name that doesn't exist
-
-**Confidence level: ★★★★☆**
-
-Core scheduling behaviors are well covered and all 14 tests pass. The one-star gap reflects areas not yet tested: preference-aware scheduling, multi-pet time budget splitting, and UI-layer behavior in `app.py`. Those would be the next additions to the suite.
-
-
-
-PawPal+ goes beyond a basic to-do list with four scheduling improvements built into the `Scheduler` class.
-
-**Sort by time.** `sort_by_time()` orders tasks by their preferred start time using `HH:MM` string comparison. Because times are zero-padded, lexicographic order matches chronological order — no datetime parsing needed.
-
-**Filter by pet or status.** `filter_by_pet()` returns tasks belonging to a single named pet. `filter_by_status()` returns all tasks across every pet that are either complete or incomplete. Both methods let the UI show a focused view instead of a flat list.
-
-**Recurring tasks.** Every `Task` has a `frequency` field (`daily`, `weekly`, or `as_needed`) and a `due_date`. When `mark_task_complete()` is called on a daily or weekly task, `clone_for_next_occurrence()` automatically creates a fresh copy scheduled for the next due date using Python's `timedelta`. Tasks marked `as_needed` are completed without spawning a follow-up.
-
-**Conflict detection.** `detect_conflicts()` checks every pair of tasks using `itertools.combinations` and flags any two whose time windows overlap. The overlap condition is `start_A < end_B and start_B < end_A`, which catches both exact same-start collisions and partial overlaps. Warnings are returned as a list of strings so the app can display them without crashing.
-
-
-## Smarter Scheduling
-
-PawPal+ goes beyond a basic to-do list with four scheduling improvements built into the `Scheduler` class.
-
-**Sort by time.** `sort_by_time()` orders tasks by their preferred start time using `HH:MM` string comparison. Because times are zero-padded, lexicographic order matches chronological order — no datetime parsing needed.
-
-**Filter by pet or status.** `filter_by_pet()` returns tasks belonging to a single named pet. `filter_by_status()` returns all tasks across every pet that are either complete or incomplete. Both methods let the UI show a focused view instead of a flat list.
-
-**Recurring tasks.** Every `Task` has a `frequency` field (`daily`, `weekly`, or `as_needed`) and a `due_date`. When `mark_task_complete()` is called on a daily or weekly task, `clone_for_next_occurrence()` automatically creates a fresh copy scheduled for the next due date using Python's `timedelta`. Tasks marked `as_needed` are completed without spawning a follow-up.
-
-**Conflict detection.** `detect_conflicts()` checks every pair of tasks using `itertools.combinations` and flags any two whose time windows overlap. The overlap condition is `start_A < end_B and start_B < end_A`, which catches both exact same-start collisions and partial overlaps. Warnings are returned as a list of strings so the app can display them without crashing.
-
 ## 3. AI Collaboration
 
 **a. How you used AI**
 
-- How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
-- What kinds of prompts or questions were most helpful?
+AI was used at every stage of this project. During system design, it helped brainstorm which classes to create and what responsibilities to assign to each. During implementation, it drafted method stubs and filled in logic incrementally — starting with `generate_plan()`, then adding sorting, filtering, recurring tasks, and conflict detection one phase at a time. During testing, it generated the full pytest suite based on the actual method signatures in the code. During refactoring, it suggested replacing the nested loop in `detect_conflicts()` with `itertools.combinations`, which was both shorter and clearer.
+
+The most helpful prompts were specific ones that referenced the actual code — for example, asking "what validation should I add to Task and Owner before implementing generate_plan?" produced more useful output than open-ended questions. Asking AI to explain a tradeoff before implementing it (such as Shortest Job First vs. other tiebreakers) also helped make deliberate design decisions rather than just accepting the first suggestion.
 
 **b. Judgment and verification**
 
-- Describe one moment where you did not accept an AI suggestion as-is.
-- How did you evaluate or verify what the AI suggested?
+One moment where the AI suggestion was not accepted as-is was the initial class design. The first draft included helper methods like `is_senior()`, `to_dict()`, and `get_summary()` on `Pet` and `Task` before it was clear whether the Streamlit UI would actually need them. Rather than implementing all of them immediately, the decision was made to stub them out and only flesh out the ones that were genuinely needed during the UI wiring phase. This avoided over-engineering the data classes before the requirements were confirmed.
+
+Every AI-generated method was verified by running it in `main.py` before moving on. For example, the recurring task logic was tested by printing the full task list before and after calling `mark_task_complete()` to confirm the new task appeared with the correct `due_date`. Tests were also used as a second layer of verification — if a method passed its pytest case, it was considered reliable enough to wire into the UI.
 
 ---
 
@@ -116,13 +72,15 @@ PawPal+ goes beyond a basic to-do list with four scheduling improvements built i
 
 **a. What you tested**
 
-- What behaviors did you test?
-- Why were these tests important?
+The test suite covers fourteen behaviors across five categories. Task completion verifies that `mark_complete()` correctly flips `is_completed`. Pet task management confirms that `add_task()` increases the task count. Sorting correctness checks that `sort_by_time()` returns tasks in chronological order regardless of insertion order. Recurrence logic confirms that daily tasks produce a next occurrence one day later, weekly tasks produce one seven days later, and `as_needed` tasks produce no follow-up. Conflict detection verifies that both exact same-start overlaps and partial overlaps are flagged, and that non-overlapping tasks produce no false warnings. Edge cases cover empty task lists, tasks that exceed available time, a task that fits exactly, and filtering by a pet name that does not exist.
+
+These tests were important because the scheduler's core value depends on correctness — a pet owner relying on this app to manage medication schedules cannot afford silent bugs in priority sorting or recurrence logic.
 
 **b. Confidence**
 
-- How confident are you that your scheduler works correctly?
-- What edge cases would you test next if you had more time?
+Confidence level: ★★★★☆
+
+All 14 tests pass. The core scheduling behaviors — priority sorting, time fitting, recurrence, and conflict detection — are well covered. The one-star gap reflects three untested areas: preference-aware scheduling (the `preferences` dict on `Owner` is stored but never read by `generate_plan()`), multi-pet time budget splitting (the scheduler treats all pets' tasks as a flat pool), and the Streamlit UI layer (no tests verify that session state persists correctly across reruns). If given more time, those three areas plus invalid `time_slot` format inputs (e.g. `"8:0"` instead of `"08:00"`) would be the next test cases to write.
 
 ---
 
@@ -130,12 +88,14 @@ PawPal+ goes beyond a basic to-do list with four scheduling improvements built i
 
 **a. What went well**
 
-- What part of this project are you most satisfied with?
+The separation of concerns across the five classes held up well throughout the entire build. Because `Scheduler` was the only class with logic and the data classes were kept clean, it was straightforward to add new methods in Phase 3 without touching any existing code. The `generate_plan()` method in particular stayed readable even after the surrounding system grew significantly, because its job never changed — it delegates to helpers and returns a `DailyPlan`.
 
 **b. What you would improve**
 
-- If you had another iteration, what would you improve or redesign?
+The `preferences` dict on `Owner` is the biggest gap between design and implementation. It was planned as a way for the scheduler to honor owner preferences like "prefer morning walks first" or "skip grooming on weekdays," but it was never wired into `generate_plan()`. In another iteration, `preferences` would be replaced with a dedicated `Preferences` dataclass with typed fields, and `generate_plan()` would apply them as a post-sort filter before building the schedule.
+
+The conflict detection system would also be improved. Currently it flags conflicts but does not block scheduling — the plan is still generated even if two tasks overlap. A better design would either prevent conflicting tasks from both being scheduled, or prompt the owner to resolve the conflict before generating the plan.
 
 **c. Key takeaway**
 
-- What is one important thing you learned about designing systems or working with AI on this project?
+The most important thing learned was that AI is most useful when you already have a clear mental model of what you are building. When prompts were vague — "help me design the system" — the output needed significant editing. When prompts were specific — "add `__post_init__` validation to Task that rejects priority outside 1–3 and duration_minutes that is zero or negative" — the output was accurate and ready to use with minimal changes. Working with AI effectively is less about letting it drive and more about giving it precise enough instructions that its output lands close to what you actually need.
