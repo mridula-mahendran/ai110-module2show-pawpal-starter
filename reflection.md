@@ -52,6 +52,40 @@ This tradeoff is reasonable for PawPal+ because the task lists are small (typica
 
 ---
 
+## Testing PawPal+
+
+Run the full test suite from the project root:
+
+```bash
+python -m pytest -v
+```
+
+**What the tests cover:**
+
+- **Task completion** — verifying `mark_complete()` updates `is_completed` correctly
+- **Pet task management** — confirming `add_task()` increases the pet's task count
+- **Sorting correctness** — ensuring `sort_by_time()` returns tasks in chronological order regardless of insertion order
+- **Recurrence logic** — confirming daily and weekly tasks auto-generate a next occurrence on completion, and that `as_needed` tasks do not
+- **Conflict detection** — verifying the scheduler flags both exact same-start and partial time overlaps, and produces no false positives for non-overlapping tasks
+- **Edge cases** — empty task lists, tasks that exceed available time, a task that fits exactly, and filtering by a pet name that doesn't exist
+
+**Confidence level: ★★★★☆**
+
+Core scheduling behaviors are well covered and all 14 tests pass. The one-star gap reflects areas not yet tested: preference-aware scheduling, multi-pet time budget splitting, and UI-layer behavior in `app.py`. Those would be the next additions to the suite.
+
+
+
+PawPal+ goes beyond a basic to-do list with four scheduling improvements built into the `Scheduler` class.
+
+**Sort by time.** `sort_by_time()` orders tasks by their preferred start time using `HH:MM` string comparison. Because times are zero-padded, lexicographic order matches chronological order — no datetime parsing needed.
+
+**Filter by pet or status.** `filter_by_pet()` returns tasks belonging to a single named pet. `filter_by_status()` returns all tasks across every pet that are either complete or incomplete. Both methods let the UI show a focused view instead of a flat list.
+
+**Recurring tasks.** Every `Task` has a `frequency` field (`daily`, `weekly`, or `as_needed`) and a `due_date`. When `mark_task_complete()` is called on a daily or weekly task, `clone_for_next_occurrence()` automatically creates a fresh copy scheduled for the next due date using Python's `timedelta`. Tasks marked `as_needed` are completed without spawning a follow-up.
+
+**Conflict detection.** `detect_conflicts()` checks every pair of tasks using `itertools.combinations` and flags any two whose time windows overlap. The overlap condition is `start_A < end_B and start_B < end_A`, which catches both exact same-start collisions and partial overlaps. Warnings are returned as a list of strings so the app can display them without crashing.
+
+
 ## Smarter Scheduling
 
 PawPal+ goes beyond a basic to-do list with four scheduling improvements built into the `Scheduler` class.
