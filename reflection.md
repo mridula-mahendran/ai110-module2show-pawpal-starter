@@ -4,8 +4,23 @@
 
 **a. Initial design**
 
-- Briefly describe your initial UML design.
-- What classes did you include, and what responsibilities did you assign to each?
+The initial design uses four classes. Each class has one clear responsibility so that scheduling logic stays separate from data storage.
+
+Owner
+Holds the owner's name, total time available in the day (in minutes), and any preferences (such as preferring morning walks). This class is purely a data container — it makes no decisions. The scheduler reads from it to understand constraints.
+
+Pet
+Holds the pet's name, species, and age. Also holds a reference to its Owner. Like Owner, this is a data class. Species and age could later inform default task recommendations, but for now they are stored without driving logic.
+
+Task
+Represents a single care activity. Attributes: name (str), duration_minutes (int), priority (int, 1–3 where 1 is highest), and category (str, e.g. "feeding", "walk", "medication"). This class knows nothing about scheduling — it only describes what a task is.
+
+Scheduler
+This is where all the logic lives. It takes an Owner, a Pet, and a list of Task objects. Its main method — generate_plan() — sorts tasks by priority, fits them into the available time window, and returns a DailyPlan. If total task duration exceeds available time, lower-priority tasks are dropped and noted as skipped.
+
+DailyPlan
+A simple output object. Holds an ordered list of tasks that made it into the plan, a list of skipped tasks, the total scheduled duration, and a reasoning string that the UI can display to explain the decisions made.
+Relationships: Pet has one Owner. Scheduler depends on Owner, Pet, and a list of Task objects. Scheduler produces one DailyPlan.
 
 **b. Design changes**
 
