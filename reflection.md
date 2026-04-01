@@ -4,28 +4,31 @@
 
 **a. Initial design**
 
-The initial design uses four classes. Each class has one clear responsibility so that scheduling logic stays separate from data storage.
+The initial design uses five classes: Owner, Pet, Task, Scheduler, and DailyPlan. The core principle is separation of concerns — data classes hold information only, and all scheduling logic lives exclusively in Scheduler.
 
-Owner
-Holds the owner's name, total time available in the day (in minutes), and any preferences (such as preferring morning walks). This class is purely a data container — it makes no decisions. The scheduler reads from it to understand constraints.
+Owner is a dataclass with three fields: name (str), available_minutes (int), and preferences (dict). It makes no decisions. Its only role is to give the Scheduler the time budget and any owner-side preferences to factor in.
 
-Pet
-Holds the pet's name, species, and age. Also holds a reference to its Owner. Like Owner, this is a data class. Species and age could later inform default task recommendations, but for now they are stored without driving logic.
+Pet is a dataclass with four fields: name, species, age, and a reference to its Owner. It is also purely a data container. The owner reference means the Scheduler can access both pet and owner information through a single object if needed.
 
-Task
-Represents a single care activity. Attributes: name (str), duration_minutes (int), priority (int, 1–3 where 1 is highest), and category (str, e.g. "feeding", "walk", "medication"). This class knows nothing about scheduling — it only describes what a task is.
+Task is a dataclass representing one care activity. It has four fields: name (str), duration_minutes (int), priority (int, where 1 is highest and 3 is lowest), and category (str, such as "walk", "feeding", or "medication"). A task knows nothing about scheduling — it only describes what the activity is.
 
-Scheduler
-This is where all the logic lives. It takes an Owner, a Pet, and a list of Task objects. Its main method — generate_plan() — sorts tasks by priority, fits them into the available time window, and returns a DailyPlan. If total task duration exceeds available time, lower-priority tasks are dropped and noted as skipped.
+Scheduler is the only class with logic. It holds references to an Owner, a Pet, and a list of Task objects. Its public method generate_plan() orchestrates the full scheduling process and returns a DailyPlan. Two private helpers support it: _sort_by_priority() returns tasks sorted from priority 1 down to 3, and _fits_in_time() checks whether a single task can still fit within the remaining time budget.
 
-DailyPlan
-A simple output object. Holds an ordered list of tasks that made it into the plan, a list of skipped tasks, the total scheduled duration, and a reasoning string that the UI can display to explain the decisions made.
-Relationships: Pet has one Owner. Scheduler depends on Owner, Pet, and a list of Task objects. Scheduler produces one DailyPlan.
+DailyPlan is the output object. It holds four fields: scheduled_tasks (the tasks that made it into the plan), skipped_tasks (those dropped due to time constraints), total_duration (the sum of scheduled task durations), and reasoning (a string the UI can display to explain how the plan was built).
+
+The relationships are: Pet references one Owner. Scheduler reads constraints from Owner, schedules for Pet, organizes a list of Task objects, and produces one DailyPlan.
 
 **b. Design changes**
 
-- Did your design change during implementation?
-- If yes, describe at least one change and why you made it.
+Four changes were made to the skeleton after reviewing the initial design.
+Added __post_init__ validation to Owner and Task.
+The initial design had no guards on field values. Without them, nothing would stop code like Task(priority=99) or Owner(available_minutes=-10) from being created — both would silently produce wrong results when generate_plan() runs. Owner now rejects available_minutes that is zero or negative, and Task now rejects any priority outside of 1, 2, or 3, and any duration_minutes that is not positive. A ValueError is raised immediately at construction so the bug surfaces at the source rather than deep inside scheduling logic.
+Added duration_minutes validation to Task.
+Related to the above — a task with zero duration would pass the priority check but still silently corrupt the schedule by consuming a slot without using any time. The same __post_init__ block catches this.
+Changed bare list to list[Task] in DailyPlan.
+scheduled_tasks and skipped_tasks were typed as plain list, which gives no information about what the list should contain. Changing both to list[Task] makes the contract explicit — the Streamlit UI and any tests can rely on these always being lists of Task objects, and type checkers will flag misuse early.
+Implemented _sort_by_priority with a two-key sort.
+The initial stub left this method as pass. The sort key is (priority, duration_minutes) — primary sort on priority (1 first), secondary sort on duration ascending. The secondary key is a Shortest Job First tiebreaker: when multiple tasks share the same priority, scheduling the shorter one first maximises the number of tasks that fit within the available time window. This was implemented in the skeleton rather than deferred because the sort strategy directly affects the behaviour of generate_plan(), which is the next thing to build.
 
 ---
 
